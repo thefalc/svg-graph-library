@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="ISO-8859-1" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN"
+    "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd" [
+    <!ATTLIST svg
+              xmlns:a3 CDATA #IMPLIED
+              a3:scriptImplementation CDATA #IMPLIED>
+    <!ATTLIST script
+              a3:scriptImplementation CDATA #IMPLIED>
+]>
+<svg onload="makeShape(evt)"
+     xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     xmlns:a3="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
+     a3:scriptImplementation="Adobe" xml:space="preserve" zoomAndPan="true">
+	
+	<script xlink:href="search.js" language="JavaScript" />
+	<script xlink:href="edge.js" language="JavaScript" />
+	<script xlink:href="node.js" language="JavaScript" />
+	<script xlink:href="geometry.js" language="JavaScript" />
+	<script xlink:href="springlayout.js" language="JavaScript" />
+	<script xlink:href="randomlayout.js" language="JavaScript" />
+	<script xlink:href="forcelayout.js" language="JavaScript" />
+	<script xlink:href="util.js" language="JavaScript" />
+	<script xlink:href="nodelabel.js" language="JavaScript" />
+	<script xlink:href="edgelabel.js" language="JavaScript" />
+
+    <script type="text/ecmascript" a3:scriptImplementation="Adobe"><![CDATA[
+        var svgns = "http://www.w3.org/2000/svg";
+    
+    // global svg document reference
+	var svgDocument;
+	
+	// parameter for storing our current layout type
+	var currentLayout = FORCE_LAYOUT;
+	
+	// used for debug print statements
+	var textOutput;
+	
+	// phantom rectangle used to move nodes
+	var movingRect;
+	
+	// flag for stopping the layout if we're done early
+	var layoutComplete;
+	
+	// global references to nodes and edges
+	var nodes = new Array();
+	var edges = new Array();
+	
+	// referenced to a selected node
+	var selected = null;
+	
+	var fixNodes = true;
+	
+	// indicates a mouse button is pressed
+	var pressed = false;
+	var prevX, prevY;
+	
+	// reference to the layout algorithm being used
+	var layoutAlg;
+	
+	////////// CONSTANTS //////////////
+	var SCREEN_WIDTH = screen.width;
+	var SCREEN_HEIGHT = screen.height;
+	
+	// node type constants
+	var TYPE_NODE = 1;
+	var INSTANCE_NODE = 2;
+	
+	// edge type constants
+	var IS_SUBCLASS = 1;
+	var HAS_PROPERTY = 2;
+	var IS_INSTANCE = 3;
+	
+	var LAYOUT_MAX_ITERATIONS = 50;
+	
+	// program entry point
+	function makeShape(evt) {	
+		if(window.svgDocument == null) svgDocument = evt.target.ownerDocument;
+		
+		prevX = 40; prevY = 40;
+		
+		svgDocument.addEventListener("mousemove", mouseMove, false);
+		svgDocument.addEventListener("mousedown", mouseDown, false);
+		svgDocument.addEventListener("mouseup", mouseUp, false);
+		svgDocument.addEventListener("dblclick", doubleClick, false);
+		
+		textOutput = svgDocument.createElementNS(svgns, "text");
+		textOutput.setAttributeNS(null, "x", 40);
+		textOutput.setAttributeNS(null, "y", 40);
+		textOutput.setAttributeNS(null, "font-size", 12);
+		textOutput.setAttributeNS(null, "fill", "black");
+		
+		movingRect = svgDocument.createElementNS(svgns, "rect");
+		movingRect.setAttributeNS(null, "x", 0);
+		movingRect.setAttributeNS(null, "y", 0);
+		movingRect.setAttributeNS(null, "width", 80);
+		movingRect.setAttributeNS(null, "height", 80);
+		movingRect.setAttributeNS(null, "stroke", "gray");
+		movingRect.setAttributeNS(null, "style", "stroke-dasharray: 9, 5;");
+		movingRect.setAttributeNS(null, "fill", "none");
+		
+		svgDocument.documentElement.appendChild(textOutput);
+		
+		buildMarkers();		
+		generateGraph();
+    }
+
+	// global function used to begin the graph layout
+	function layoutGraph() {
+		var entitiesToLayout = new Array();
+		var relationshipsToConsider = new Array();
+		var count = 0;
+		for(var i = 0; i < nodes.length; i++) {
+			if(nodes[i].visible) entitiesToLayout[count++] = nodes[i];
+		}
+		count = 0;
+		for(var i = 0; i < edges.length; i++) {
+			if(edges[i].visible) relationshipsToConsider[count++] = edges[i];
+		}
+		layout = LayoutFactory_getInstance(currentLayout, entitiesToLayout, relationshipsToConsider, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);	
+		iterativeLayout(0);
+	}
+	
+	// used to iteratively move nodes for the layout and creates animation
+	function iterativeLayout(iterations) {
+		layout.computeOneIteration(iterations);
+		if(iterations < LAYOUT_MAX_ITERATIONS && !layoutComplete) {
+			setTimeout("iterativeLayout(" + (iterations+1) + ")", 5);
+		}
+	}
+	
+	// gets the node index based on the label for the node
+	function getNodeIndex(nodeName) {
+		for(var i = 0; i < nodes.length; i++) {
+			if(nodes[i].getLabel() == nodeName) return i;		   
+		}
+		return -1;
+	}
+	
+	// adds the phantom rectangle to the canvas
+	function addMovingRect(x, y) {
+		// add our temporary rectangle that indicates an object is being repositioned
+		movingRect.setAttributeNS(null, "x", x);
+		movingRect.setAttributeNS(null, "y", y);
+		movingRect.setAttributeNS(null, "width", nodes[0].getWidth());
+		movingRect.setAttributeNS(null, "height", nodes[0].getHeight());
+		svgDocument.documentElement.appendChild(movingRect);
+	}
+	
+	// double click event on the canvas
+	function doubleClick(evt) {
+		if(selected != null) {
+			selected.doubleClick();
+		}
+	}
+
+	// mouse down event on the canvas 
+    function mouseDown(evt) {
+		pressed = true;
+		if(selected != null) {
+			// node is already selected, don't reselect
+			if(selected.contains(evt.clientX, evt.clientY)) {
+				selected.hideLabel();
+				addMovingRect(selected.getX(), selected.getY());
+				return;
+			}
+			selected.select(false);
+		}
+		selected = null;
+		
+		for(var i = nodes.length - 1; i >= 0; i--) {
+			if(nodes[i].visible && nodes[i].contains(evt.clientX, evt.clientY)) {		
+				nodes[i].select(true);
+				selected = nodes[i];
+				selected.hideLabel();
+				addMovingRect(selected.getX(), selected.getY());
+				break;
+			}
+		}
+	}
+	
+	// mouse move event on the canvas
+	function mouseMove(evt) {
+		if(selected != null && pressed) {					
+			movingRect.setAttributeNS(null, "x", evt.clientX);
+			movingRect.setAttributeNS(null, "y", evt.clientY);
+		}
+		
+		var foundNode = false;
+		for(var i = nodes.length - 1; i >= 0; i--) {
+			if(!foundNode && nodes[i].visible && nodes[i].contains(evt.clientX, evt.clientY)) {
+ 				nodes[i].showLabel(evt.clientX, evt.clientY);
+				foundNode = true;
+			}
+			else nodes[i].hideLabel();
+		}
+
+		var foundEdge = false;
+		for(var i = edges.length - 1; i >= 0; i--) {		
+			if(!foundNode && !foundEdge && edges[i].contains(evt.clientX, evt.clientY)) {
+				edges[i].select(true);
+				edges[i].showLabel(evt.clientX, evt.clientY);
+				foundEdge = true;
+			}
+			else {
+				if(selected == null || !selected.hasEdge(edges[i])) {
+					edges[i].select(false);
+				}
+				edges[i].hideLabel();
+			}
+		}
+		
+	}
+	
+	// mouse up event on the canvas
+	function mouseUp(evt) {
+		pressed = false;
+		
+		if(selected != null) {
+			var x = movingRect.getAttributeNS(null, "x");
+			var y = movingRect.getAttributeNS(null, "y");
+			svgDocument.documentElement.removeChild(movingRect);
+			
+			selected.move(x, y);
+		}
+	}
+    ]]></script>
+</svg>
