@@ -2,7 +2,7 @@
 
 I created this library in graduate school to play around and learn about SVGs. The library is a vanilla Javascript implementation for a graph drawing library. The library has three layouts: force, spring, and random. The actual rendering is done with SVG. 
 
-![SVG Graph Examle](/assets/svg-graph-example.png)
+![SVG Graph Example](/assets/svg-graph-example.png)
 
 ## Technical details
 
